@@ -6,7 +6,6 @@ import org.sammancoaching.dependencies.Logger;
 import org.sammancoaching.dependencies.Project;
 
 public class Pipeline {
-    // Definindo constantes para evitar Magic Strings
     private static final String SUCCESS_STATUS = "success";
     private static final String MSG_NO_TESTS = "No tests";
     private static final String MSG_TESTS_PASSED = "Tests passed";
@@ -21,6 +20,9 @@ public class Pipeline {
     private final Emailer emailer;
     private final Logger log;
 
+    // Encapsulamento do estado do Pipeline em um Record imutável
+    private record PipelineStatus(boolean testsPassed, boolean deploySuccessful) {}
+
     public Pipeline(Config config, Emailer emailer, Logger log) {
         this.config = config;
         this.emailer = emailer;
@@ -30,7 +32,10 @@ public class Pipeline {
     public void run(Project project) {
         boolean testsPassed = executeTests(project);
         boolean deploySuccessful = executeDeployment(project, testsPassed);
-        sendNotification(testsPassed, deploySuccessful);
+
+        // Agrupando os dados em um objeto próprio antes de enviar para a notificação
+        PipelineStatus status = new PipelineStatus(testsPassed, deploySuccessful);
+        sendNotification(status);
     }
 
     private boolean executeTests(Project project) {
@@ -39,9 +44,7 @@ public class Pipeline {
             return true;
         }
 
-        boolean isTestRunSuccessful = SUCCESS_STATUS.equals(project.runTests());
-
-        if (isTestRunSuccessful) {
+        if (SUCCESS_STATUS.equals(project.runTests())) {
             log.info(MSG_TESTS_PASSED);
             return true;
         }
@@ -51,13 +54,9 @@ public class Pipeline {
     }
 
     private boolean executeDeployment(Project project, boolean testsPassed) {
-        if (!testsPassed) {
-            return false;
-        }
+        if (!testsPassed) return false;
 
-        boolean isDeploySuccessful = SUCCESS_STATUS.equals(project.deploy());
-
-        if (isDeploySuccessful) {
+        if (SUCCESS_STATUS.equals(project.deploy())) {
             log.info(MSG_DEPLOY_SUCCESS);
             return true;
         }
@@ -66,20 +65,21 @@ public class Pipeline {
         return false;
     }
 
-    private void sendNotification(boolean testsPassed, boolean deploySuccessful) {
+    // A assinatura agora recebe o objeto encapsulado em vez de parâmetros soltos
+    private void sendNotification(PipelineStatus status) {
         if (!config.sendEmailSummary()) {
             log.info(MSG_EMAIL_DISABLED);
             return;
         }
 
-        log.info(MSG_SENDING_EMAIL); // Agora usa constante
+        log.info(MSG_SENDING_EMAIL);
 
-        if (!testsPassed) {
+        if (!status.testsPassed()) {
             emailer.send(MSG_TESTS_FAILED);
             return;
         }
 
-        String finalMessage = deploySuccessful ? MSG_EMAIL_SUCCESS : MSG_DEPLOY_FAILED;
+        String finalMessage = status.deploySuccessful() ? MSG_EMAIL_SUCCESS : MSG_DEPLOY_FAILED;
         emailer.send(finalMessage);
     }
 }
